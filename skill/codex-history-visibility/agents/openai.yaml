@@ -1,0 +1,4 @@
+interface:
+  display_name: "Codex History Visibility"
+  short_description: "Fix Codex history visibility after provider switches."
+  default_prompt: "Use this skill to inspect and repair Codex history visibility after switching model_provider."
