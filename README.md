@@ -1,103 +1,116 @@
 # Codex History Visibility
 
-A local Codex skill and helper scripts for repairing Codex history visibility after switching `model_provider`.
+一个本地 Codex skill 和辅助脚本，用来处理切换 `model_provider` 后历史会话在 Codex Desktop 或 `/resume` 中不可见的问题。
 
-When Codex Desktop or `/resume` appears to lose old conversations after a provider switch, the sessions are often still present on disk. The usual problem is metadata drift between rollout files, `state_5.sqlite`, and Codex Desktop workspace state.
+有时候对话并没有丢，rollout 文件也还在，只是 `~/.codex/sessions`、`state_5.sqlite` 和 Desktop 的工作区状态之间出现了 provider / cwd 元数据不一致。本项目把这类修复流程整理成一个可复用的 skill，方便以后由 Codex 自动执行。
 
-This project is inspired by and built around [`Dailin521/codex-provider-sync`](https://github.com/Dailin521/codex-provider-sync). That project identified the core issue and provides the main provider/session synchronization engine. This repository packages the workflow as a Codex skill and adds a small repair layer for Desktop sidebar state and SQLite cwd cleanup.
+## 致谢
 
-## Relationship To Dailin521/codex-provider-sync
+本项目的思路来自 [Dailin521/codex-provider-sync](https://github.com/Dailin521/codex-provider-sync)。
 
-`Dailin521/codex-provider-sync` is the core tool. It synchronizes provider metadata across rollout files and SQLite state, creates backups, supports provider switching, and includes Windows GUI/CLI workflows.
+`codex-provider-sync` 对 Codex 切换 provider 后历史会话不可见的问题做了系统梳理，并提供了核心同步能力，包括：
 
-This repository is intentionally smaller and complementary:
+- 同步 rollout 文件中的 provider 元数据
+- 同步 `state_5.sqlite` 中的线程元数据
+- 在执行前创建备份
+- 支持 Windows GUI 和 CLI 使用方式
 
-- It provides a Codex skill so an agent knows when and how to run the repair workflow.
-- It wraps the CLI with local helper commands for repeated use.
-- It resets Desktop sidebar visibility state when the history exists but the UI is still blank.
-- It performs an extra SQLite cwd cleanup pass based on rollout `session_meta.cwd` when path formatting drifts.
+本项目不是替代 `codex-provider-sync`，而是一个面向 Codex agent 使用的配套 skill。它主要做三件事：
 
-The idea, diagnosis, and most of the heavy lifting come from `codex-provider-sync`; this project is a workflow/skill layer learned from using it on a real Codex Desktop history issue.
+- 把修复流程写成 Codex 能自动遵循的 skill
+- 提供两个本地 helper 命令，减少重复输入命令的成本
+- 在同步后补充处理 Desktop 侧边栏状态和 SQLite `cwd` 路径格式问题
 
-## What It Fixes
+简单说：核心同步能力由 `codex-provider-sync` 提供；本项目负责把它整理成更适合日常 Codex Desktop 使用的工作流。
 
-- Rollout files under `~/.codex/sessions`
-- SQLite thread provider and cwd metadata in `~/.codex/state_5.sqlite`
-- Codex Desktop sidebar/workspace visibility state in `~/.codex/.codex-global-state.json`
-- Provider mismatches after switching between `openai`, `custom`, or other configured providers
+## 能修什么
 
-## What It Does Not Fix
+- `~/.codex/sessions` 下的历史会话 provider 元数据
+- `~/.codex/state_5.sqlite` 中的线程 provider / cwd 元数据
+- `~/.codex/.codex-global-state.json` 中的 Desktop 侧边栏和工作区可见性状态
+- 在 `openai`、`custom` 或其他已配置 provider 之间切换后出现的历史会话不可见问题
 
-- Login, auth, accounts, or `auth.json`
-- Missing or deleted rollout files
-- Re-encryption of `encrypted_content` across accounts/providers
-- Codex Desktop's first-page recent-history limit
+## 不修什么
 
-Sessions with encrypted content from a different account/provider may become visible but can still fail to continue or compact.
+- 不处理登录、账号、认证和 `auth.json`
+- 不恢复已经删除或不存在的 rollout 文件
+- 不把 `encrypted_content` 重新加密到另一个账号或 provider
+- 不绕过 Codex Desktop 当前最近会话首屏数量限制
 
-## Requirements
+如果历史会话包含来自另一个账号或 provider 的 `encrypted_content`，本工具通常只能修复“列表可见性”。继续对话或 compact 仍可能失败。
 
-- Codex using the standard `~/.codex` home, or `CODEX_HOME` set explicitly
+## 依赖
+
 - Node.js 24+
-- `codex-provider-sync` installed:
+- 已安装 `codex-provider-sync`
+- 使用默认 `~/.codex`，或显式设置 `CODEX_HOME`
+
+安装 `codex-provider-sync`：
 
 ```powershell
 npm install -g git+https://github.com/Dailin521/codex-provider-sync.git
 ```
 
-On Windows, commands use `cmd /c codex-provider.cmd ...` to avoid PowerShell execution-policy issues with npm-generated `.ps1` shims.
+Windows 下建议通过 `cmd /c codex-provider.cmd ...` 调用，避免 PowerShell execution policy 拦截 npm 生成的 `.ps1` shim。
 
-## Install
+## 安装
 
-From this repository:
+在本仓库目录下执行：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```
 
-This copies:
+安装内容：
 
-- `skill/codex-history-visibility` to `%USERPROFILE%\.codex\skills\codex-history-visibility`
-- `bin\codex-history-visible.cmd` and `bin\codex-switch-visible.cmd` to `%USERPROFILE%\.codex`
+- `skill/codex-history-visibility` -> `%USERPROFILE%\.codex\skills\codex-history-visibility`
+- `bin\codex-history-visible.cmd` -> `%USERPROFILE%\.codex\codex-history-visible.cmd`
+- `bin\codex-switch-visible.cmd` -> `%USERPROFILE%\.codex\codex-switch-visible.cmd`
 
-If `CODEX_HOME` is set, the installer uses that instead of `%USERPROFILE%\.codex`.
+如果设置了 `CODEX_HOME`，安装脚本会使用 `CODEX_HOME` 指向的目录。
 
-## Usage
+## 使用
 
-After switching provider or when history disappears:
+当前 provider 不变，只修复历史会话可见性：
 
 ```powershell
 cmd /c "%USERPROFILE%\.codex\codex-history-visible.cmd"
 ```
 
-To switch provider and then sync history:
+切换 provider，并同步历史会话：
 
 ```powershell
 cmd /c "%USERPROFILE%\.codex\codex-switch-visible.cmd" custom
 cmd /c "%USERPROFILE%\.codex\codex-switch-visible.cmd" openai
 ```
 
-Inside Codex, ask:
+在 Codex 里也可以直接说：
 
 ```text
-Use the codex-history-visibility skill to repair my Codex history visibility.
+用 codex-history-visibility skill 帮我修复 Codex 历史会话可见性。
 ```
 
-## Safety
+## 安全性
 
-The underlying sync command creates backups under:
+`codex-provider-sync` 会在同步前创建备份：
 
 ```text
 ~/.codex/backups_state/provider-sync
 ```
 
-The repair script also backs up `.codex-global-state.json` before changing sidebar state.
+本项目的修复脚本在修改 `.codex-global-state.json` 前，也会额外创建一份备份。
 
-For the cleanest repair, fully exit Codex Desktop before running the repair. Active sessions can lock their current rollout file.
+建议在执行修复前完全退出 Codex Desktop。正在运行的会话可能会锁住当前 rollout 文件，导致该文件本轮被跳过。
 
-## Verification
+## 检查结果
 
-A successful status should show matching providers and no cwd repair warning:
+可以用下面命令检查状态：
+
+```powershell
+cmd /c codex-provider.cmd status
+```
+
+理想状态类似：
 
 ```text
 Rollout files:
@@ -110,11 +123,7 @@ Project visibility:
   ... exact cwd N/N, verbatim cwd 0
 ```
 
-Run:
-
-```powershell
-cmd /c codex-provider.cmd status
-```
+如果仍然看到 `cwd paths needing repair`，可以在完全退出 Codex 后再运行一次修复命令。
 
 ## License
 
